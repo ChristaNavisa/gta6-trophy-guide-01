@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leonida Platinum Codex — GTA VI Trophy Guide &amp; Tracker</title>
+<meta name="description" content="Offline guide and tracker for all 55 Grand Theft Auto VI PlayStation 5 trophies: official list, cited guides, roadmap, missables, saved checklist.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23ff2e88'/%3E%3Ctext x='32' y='42' font-size='28' font-family='sans-serif' font-weight='bold' text-anchor='middle' fill='%230b0e1a'%3ELC%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">LC</div>
+    <div>
+      <h1>Leonida Platinum Codex</h1>
+      <p class="tagline">All 55 GTA VI trophies — cited guides, roadmap, missables, offline tracker</p>
+    </div>
+  </div>
+  <div class="header-stats" id="headerStats">
+    <div class="stat"><span class="stat-num" id="statEarned">0</span><span class="stat-label">earned</span></div>
+    <div class="stat"><span class="stat-num" id="statPct">0%</span><span class="stat-label">complete</span></div>
+    <div class="stat"><span class="stat-num" id="statMiss">17</span><span class="stat-label">missable</span></div>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Sections">
+  <button type="button" class="tab active" data-view="tracker" id="tabTracker">Tracker</button>
+  <button type="button" class="tab" data-view="roadmap" id="tabRoadmap">Roadmap to Platinum</button>
+  <button type="button" class="tab" data-view="missables" id="tabMissables">Missables <span class="pill" id="missCount">17</span></button>
+  <button type="button" class="tab" data-view="about" id="tabAbout">Sources &amp; About</button>
+</nav>
+
+<main>
+  <!-- ============ TRACKER ============ -->
+  <section id="view-tracker" class="view active" aria-labelledby="tabTracker">
+    <div class="dashboard">
+      <div class="ring-wrap">
+        <svg class="ring" width="148" height="148" viewBox="0 0 148 148" role="img" aria-label="Platinum progress ring">
+          <circle class="ring-bg" cx="74" cy="74" r="62"></circle>
+          <circle class="ring-fg" id="ringFg" cx="74" cy="74" r="62"></circle>
+        </svg>
+        <div class="ring-center"><strong id="ringPct">0%</strong><span id="ringCount">0 / 55</span></div>
+      </div>
+      <div class="dash-body">
+        <h2>Your road to <span class="plat">Vice Got a Price!</span></h2>
+        <p class="dash-sub">55 trophies · 1 platinum · 2 gold · 6 silver · 46 bronze · 28 hidden on PlayStation until earned. Tick a trophy when you earn it — progress is saved in this browser.</p>
+        <div class="grade-bars" id="gradeBars"></div>
+        <div class="dash-actions">
+          <button type="button" class="btn primary" id="exportBtn">Export progress</button>
+          <label class="btn" for="importFile">Import progress</label>
+          <input type="file" id="importFile" accept="application/json,.json" hidden>
+          <button type="button" class="btn ghost" id="resetBtn">Reset all</button>
+        </div>
+        <p class="dash-note" id="saveNote">Progress saves automatically in localStorage. Export a file to back it up or move it to another browser.</p>
+      </div>
+    </div>
+
+    <div class="controls" role="search">
+      <input type="search" id="searchBox" placeholder="Search a trophy, mission or keyword…" aria-label="Search trophies">
+      <div class="chip-row" id="kindChips" aria-label="Filter by kind">
+        <button type="button" class="chip active" data-kind="all">All 55</button>
+        <button type="button" class="chip" data-kind="story">Story</button>
+        <button type="button" class="chip" data-kind="missable">Missable</button>
+        <button type="button" class="chip" data-kind="collectibles">Collectibles</button>
+        <button type="button" class="chip" data-kind="activities">Activities</button>
+        <button type="button" class="chip" data-kind="side">Side strands</button>
+        <button type="button" class="chip" data-kind="combat">Combat</button>
+        <button type="button" class="chip" data-kind="exploration">Exploration</button>
+        <button type="button" class="chip" data-kind="misc">Odd jobs</button>
+      </div>
+      <div class="control-row">
+        <label class="select-label">Grade
+          <select id="gradeFilter">
+            <option value="all">All grades</option>
+            <option value="platinum">Platinum</option>
+            <option value="gold">Gold</option>
+            <option value="silver">Silver</option>
+            <option value="bronze">Bronze</option>
+          </select>
+        </label>
+        <label class="select-label">Show
+          <select id="earnedFilter">
+            <option value="all">All trophies</option>
+            <option value="todo">Not earned yet</option>
+            <option value="done">Earned only</option>
+          </select>
+        </label>
+        <label class="toggle"><input type="checkbox" id="spoilerToggle"> <span>Hide story spoilers</span></label>
+        <span class="result-count" id="resultCount"></span>
+      </div>
+    </div>
+
+    <div class="tracker-layout">
+      <ul class="trophy-list" id="trophyList"></ul>
+      <aside class="detail" id="detailPane" aria-live="polite">
+        <p class="detail-empty">Select a trophy to read its guide, sources and tips.</p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ ROADMAP ============ -->
+  <section id="view-roadmap" class="view" aria-labelledby="tabRoadmap">
+    <h2 class="section-title">Roadmap to the platinum</h2>
+    <p class="section-sub">Built from the official trophy descriptions: story first, then the character strands, then collectibles and activities, then the combat and money cleanup. Each stage lists the trophies it earns and the order that wastes the least backtracking.</p>
+    <ol class="roadmap" id="roadmapList"></ol>
+    <div class="roadmap-foot">
+      <h3>Why this order?</h3>
+      <p>Story trophies (stage 1) unlock as you play and open the map and systems the rest of the game needs. Character strands (stage 2) are best done while the story is fresh, because their final missions are story beats. Collectibles (stage 3) and activities (stage 4) are spread across Leonida, so they share the same long drives — do them together. Combat and money trophies (stages 5–6) are the cleanup: by then you own the gear and the cash to finish them fast. The platinum pops the moment the 54th other trophy is earned.</p>
+    </div>
+  </section>
+
+  <!-- ============ MISSABLES ============ -->
+  <section id="view-missables" class="view" aria-labelledby="tabMissables">
+    <h2 class="section-title">Missable trophies — 17 to watch</h2>
+    <p class="section-sub">Every trophy below is tied to a specific story chapter or mission, taken from the official descriptions. None of them is permanently missable: GTA VI lets you replay story missions, so a missed one is recovered from the mission replay menu — but finish each chapter's missions before you move on, and you will never need the replay.</p>
+    <ul class="trophy-list miss-list" id="missableList"></ul>
+  </section>
+
+  <!-- ============ ABOUT ============ -->
+  <section id="view-about" class="view" aria-labelledby="tabAbout">
+    <h2 class="section-title">Sources &amp; about this guide</h2>
+    <div class="about-grid">
+      <div class="about-card">
+        <h3>Where the facts come from</h3>
+        <p>Every trophy's name, description and grade is shown exactly as PlayStation publishes it. The official list was taken from two sources that agree on every name, description and grade:</p>
+        <ul>
+          <li><a href="https://www.exophase.com/game/grand-theft-auto-vi-psn/trophies/">Exophase — Grand Theft Auto VI trophy list</a></li>
+          <li><a href="https://psnprofiles.com/trophies/43531-grand-theft-auto-vi">PSNProfiles — Grand Theft Auto VI trophy list</a> (also the source of the PSN progress counts, e.g. 42 Shooting Range challenges, 18 meditation spots, 100 WAiNK locations)</li>
+        </ul>
+        <p>Each trophy's guide is written in our own words for this entry and cites those sources beside it. Where a guide says “not yet verified in play”, the advice is drawn from the official description alone — GTA VI launched on 19 November 2026 and no location or step is claimed as checked in the game.</p>
+      </div>
+      <div class="about-card">
+        <h3>How the tracker works</h3>
+        <ul>
+          <li>Tick a trophy to mark it earned; progress is stored in your browser's localStorage and never leaves your machine.</li>
+          <li><strong>Export progress</strong> downloads a JSON file; <strong>Import progress</strong> reads one back.</li>
+          <li><strong>Hide story spoilers</strong> replaces the names and descriptions of un-earned story trophies with “Hidden trophy” until you earn them.</li>
+          <li>Filters cover story, missable, collectibles, activities, side strands, combat, exploration and odd jobs, plus grade and earned state.</li>
+          <li>This app is static files and works with the network off. It makes no network request at run time.</li>
+        </ul>
+      </div>
+      <div class="about-card">
+        <h3>About the look</h3>
+        <p>The design is our own — a neon-night Leonida theme built for this guide. It uses no Rockstar Games logo, no official artwork, no box art and no screenshot of the game.</p>
+        <p class="fine">Grand Theft Auto VI © Rockstar Games. Trophy names and descriptions © PlayStation / Sony Interactive Entertainment, shown as published. This is an unofficial fan guide, not affiliated with Rockstar Games or PlayStation.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Leonida Platinum Codex — an unofficial, offline GTA VI trophy guide &amp; tracker. Trophy names, descriptions and grades as published by PlayStation. Guides in our own words; sources cited per trophy.</p>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
