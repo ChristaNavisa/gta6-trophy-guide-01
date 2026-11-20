@@ -3,82 +3,108 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Leonida Platinum Codex — GTA VI Trophy Guide &amp; Tracker</title>
+<title>Leonida Platinum Codex — GTA 6 Trophy Guide</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <div class="mark">LP</div>
-    <div>
-      <h1>Leonida Platinum Codex</h1>
-      <p class="sub">GRAND THEFT AUTO VI · PLAYSTATION 5 · UNOFFICIAL FAN GUIDE</p>
-      <p class="tagline">All 55 trophies. Every step cited. Every dispute shown. One roadmap to platinum.</p>
+<header class="band">
+  <div class="band-inner">
+    <div class="brand">
+      <div class="logo">LP</div>
+      <div>
+        <h1>LEONIDA PLATINUM CODEX</h1>
+        <p class="sub">GRAND THEFT AUTO VI · PLAYSTATION 5 · UNOFFICIAL FAN GUIDE</p>
+        <p class="tagline">All 55 trophies. Every step cited. Every dispute shown. One roadmap to platinum.</p>
+      </div>
     </div>
-  </div>
-  <div class="headstats">
-    <div class="earned"><span class="lbl">EARNED</span> <b id="earnedCount">0 / 55</b> <span id="psnPts">0 / 1,350 PSN pts</span></div>
-    <div class="gradebar" id="gradeBar" title="Platinum / Gold / Silver / Bronze progress"></div>
-    <div class="headbtns">
-      <label class="spoiler"><input type="checkbox" id="spoilerToggle"> Spoiler shield <span id="spoilerState">off · story names shown</span></label>
-      <button id="exportBtn" type="button">Export</button>
-      <button id="importBtn" type="button">Import</button>
-      <button id="resetBtn" type="button">Reset</button>
-      <span class="saved">Saved in this browser</span>
+    <div class="head-right">
+      <div class="earned"><span id="earnedLine">EARNED 0 / 55</span> <span id="psnLine">0 / 1,350 PSN pts</span></div>
+      <div class="head-bar"><div id="earnBar" class="earn-fill" style="width:0%"></div></div>
+      <div class="head-actions">
+        <label class="spoiler"><input type="checkbox" id="spoilerToggle"> <span id="spoilerLabel">Spoiler shield on · story names hidden</span></label>
+        <button id="btnExport" type="button">Export</button>
+        <button id="btnImport" type="button">Import</button>
+        <button id="btnReset" type="button">Reset</button>
+        <input type="file" id="importFile" accept="application/json" hidden>
+      </div>
+      <p class="saved" id="savedNote">Saved in this browser</p>
     </div>
-    <input type="file" id="importFile" accept="application/json" hidden>
   </div>
 </header>
 
-<section class="audit" id="auditStrip" aria-label="Audit — computed from the data below, not typed by hand">
-  <span class="audit-title">AUDIT · COMPUTED FROM THE DATA BELOW, NOT TYPED BY HAND</span>
-  <div class="audit-cells" id="auditCells"></div>
+<section class="audit-wrap">
+  <p class="audit-kicker">AUDIT · COMPUTED FROM THE DATA BELOW, NOT TYPED BY HAND</p>
+  <div id="auditRow1" class="audit-row"></div>
+  <div id="auditRow2" class="audit-row"></div>
+  <p id="roadmapFacts" class="roadmap-facts"></p>
 </section>
 
 <nav class="tabs" role="tablist">
-  <button class="tab active" data-tab="tracker" role="tab">Tracker</button>
-  <button class="tab" data-tab="roadmap" role="tab">Roadmap</button>
-  <button class="tab" data-tab="missables" role="tab">Missables</button>
-  <button class="tab" data-tab="sources" role="tab">Sources</button>
+  <button class="tab active" data-tab="tracker" type="button">Tracker</button>
+  <button class="tab" data-tab="roadmap" type="button">Roadmap</button>
+  <button class="tab" data-tab="missables" type="button">Missables</button>
+  <button class="tab" data-tab="sources" type="button">Sources</button>
 </nav>
 
+<div class="filters">
+  <button class="chip active" data-f="all" type="button">All 55</button>
+  <button class="chip" data-f="story" type="button">Story 12</button>
+  <button class="chip" data-f="missable" type="button">Missable 1</button>
+  <button class="chip" data-f="atrisk" type="button">At risk 8</button>
+  <button class="chip" data-f="watch" type="button">Watch 5</button>
+  <button class="chip" data-f="unconfirmed" type="button">Unconfirmed 3</button>
+  <button class="chip" data-f="collectibles" type="button">Collectibles 5</button>
+  <button class="chip" data-f="activities" type="button">Activities 9</button>
+  <button class="chip" data-f="crime" type="button">Crime 9</button>
+  <button class="chip" data-f="misc" type="button">Misc 19</button>
+  <button class="chip" data-f="hidden" type="button">PSN-hidden 28</button>
+  <button class="chip" data-f="disputed" type="button">Disputed 30</button>
+  <button class="chip" data-f="unearned" type="button">Not earned 43</button>
+  <button class="chip" data-f="P" type="button">P 1</button>
+  <button class="chip" data-f="G" type="button">G 2</button>
+  <button class="chip" data-f="S" type="button">S 6</button>
+  <button class="chip" data-f="B" type="button">B 46</button>
+  <input id="search" type="search" placeholder="Search trophies…" aria-label="Search trophies">
+</div>
+
 <main>
-  <section id="tab-tracker" class="tabpanel">
-    <div class="filters" id="filters"></div>
-    <div class="tracker-grid">
-      <div class="listcol">
-        <input id="searchBox" type="search" placeholder="Search trophies…" aria-label="Search trophies">
-        <div id="trophyList" class="trophy-list"></div>
-      </div>
-      <div class="detailcol" id="detailPane"></div>
+  <section id="tab-tracker" class="panel active">
+    <div class="grid">
+      <div id="list" class="list"></div>
+      <article id="detail" class="detail"></article>
       <aside class="rail">
-        <div class="rail-card">
-          <h2>NEXT UP IN ROADMAP ORDER</h2>
+        <div class="rail-box">
+          <h3>NEXT UP IN ROADMAP ORDER</h3>
           <ol id="nextUp" class="nextup"></ol>
         </div>
-        <div class="rail-card">
-          <h2>SOURCES FOR THIS GUIDE</h2>
-          <ol id="detailSources" class="srcs"></ol>
+        <div class="rail-box">
+          <h3>SOURCES FOR THIS GUIDE</h3>
+          <ol id="detailSources" class="detsrc"></ol>
         </div>
       </aside>
     </div>
   </section>
-  <section id="tab-roadmap" class="tabpanel" hidden>
-    <div id="roadmapPane" class="roadmap"></div>
+  <section id="tab-roadmap" class="panel">
+    <h2>Roadmap to platinum</h2>
+    <p id="roadmapIntro" class="roadmap-intro"></p>
+    <div id="roadmapStages"></div>
   </section>
-  <section id="tab-missables" class="tabpanel" hidden>
-    <div id="missablesPane" class="missables"></div>
+  <section id="tab-missables" class="panel">
+    <h2>Missables — risk tiers, computed from the data</h2>
+    <p class="muted">One trophy can be lost for good in a single playthrough. Eight more are at risk if you rush the story. Play the tiers in order.</p>
+    <div id="missableTiers"></div>
   </section>
-  <section id="tab-sources" class="tabpanel" hidden>
-    <div id="sourcesPane" class="sources"></div>
+  <section id="tab-sources" class="panel">
+    <h2>Sources — read 20 Nov 2026</h2>
+    <p class="muted">Every step in this guide cites at least two sources below. Claim counts are computed from the guide data.</p>
+    <ol id="sourceList" class="srclist"></ol>
   </section>
 </main>
 
-<footer class="foot">
-  Unofficial fan guide. Every factual claim cites its source by number; where sources disagree, both versions are shown and a safe play is given.
-  <span id="selftestBadge"></span>
+<footer>
+  <p>Leonida Platinum Codex — an unofficial fan guide. Grand Theft Auto VI © Rockstar Games. Trophy names and descriptions are the official PlayStation trophy list. Sources are cited with full URLs; read 20 Nov 2026.</p>
+  <p id="selftestOut"></p>
 </footer>
-
 <script type="module" src="app.js"></script>
 </body>
 </html>

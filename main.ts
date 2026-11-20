@@ -1,15 +1,16 @@
-// Leonida Platinum Codex v3 — hands the guide in.
+// Leonida Platinum Codex v4 — gta6-trophy-guide-01 entry (Node 22, standard
+// library only). The guide is this directory's app/ folder: plain static files
+// a browser opens at app/index.html (ES modules, CSS, no build step), offline.
+// It hands the app in: copies app/ and screenshots/ from beside this file to
+// /output and writes /output/dossier.json with the vendored make.fun library.
+// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 //
-// The program copies app/ and screenshots/ from beside this file to
-// /output (MAKEFUN_OUTPUT_DIR outside the grader) and writes
-// /output/dossier.json with buildDossier from vendor/makefun-frontend.ts,
-// exactly as the kit's starter does. Two robustness details:
-//   - The output dir is emptied by removing its children, never by rmSync
-//     on the dir itself: the grader hands /output over as a mount point
-//     and rmSync on it throws EBUSY.
-//   - After writing the dossier, the program rebuilds it fresh and compares
-//     the bytes: a mismatch fails the run, so a bad dossier never ships.
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+// Before copying, it validates the guide data and the screenshots against the
+// gate's shapes, and after writing it rebuilds the dossier fresh and refuses
+// to finish unless the two are byte-identical.
+
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-frontend.ts';
@@ -17,114 +18,69 @@ import { buildDossier } from './vendor/makefun-frontend.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-function emptyContents(dir) {
-  // Clear a directory's children without removing the directory itself.
-  mkdirSync(dir, { recursive: true });
-  for (const name of readdirSync(dir)) {
-    rmSync(join(dir, name), { recursive: true, force: true });
-  }
+function fail(msg: string): never {
+  console.error(`main.ts: ${msg}`);
+  process.exit(1);
 }
 
-function validateTrophies() {
-  const raw = readFileSync(join(here, 'app', 'data', 'trophies.json'), 'utf8');
-  const data = JSON.parse(raw);
-  const trophies = data.trophies;
-  if (!Array.isArray(trophies) || trophies.length !== 55) {
-    throw new Error(`trophies.json must hold 55 trophies, found ${Array.isArray(trophies) ? trophies.length : 'none'}`);
-  }
-  const names = new Set();
-  for (const t of trophies) {
-    if (typeof t.guide !== 'string' || t.guide.trim() === '') {
-      throw new Error(`trophy ${t.name || t.id} has no text guide`);
+// --- Validate the guide data (same numbers the app computes at runtime). ---
+const data = JSON.parse(readFileSync(join(here, 'app', 'data', 'trophies.json'), 'utf8'));
+const trophies = data.trophies;
+const sources = data.sources;
+if (!Array.isArray(trophies) || trophies.length !== 55) fail(`expected 55 trophies, got ${trophies?.length}`);
+if (!Array.isArray(sources) || sources.length !== 30) fail(`expected 30 sources, got ${sources?.length}`);
+let steps = 0;
+let disputes = 0;
+for (const t of trophies) {
+  if (typeof t.guide !== 'string' || !t.guide.trim()) fail(`trophy #${t.n} has no text guide`);
+  if (!Array.isArray(t.steps) || t.steps.length === 0) fail(`trophy #${t.n} has no steps`);
+  for (const s of t.steps) {
+    if (!Array.isArray(s.s) || s.s.length < 2) fail(`trophy #${t.n} has a step cited by fewer than 2 sources`);
+    for (const i of s.s) {
+      if (!Number.isInteger(i) || i < 1 || i > sources.length) fail(`trophy #${t.n} cites source #${i}, which does not exist`);
     }
-    if (names.has(t.name)) throw new Error(`duplicate trophy name: ${t.name}`);
-    names.add(t.name);
-    for (const s of t.steps || []) {
-      if (!Array.isArray(s.c) || s.c.length === 0) {
-        throw new Error(`trophy ${t.name}: a step cites no source`);
-      }
-    }
+    steps++;
   }
-  const grades = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
-  for (const t of trophies) grades[t.grade] = (grades[t.grade] || 0) + 1;
-  if (grades.platinum !== 1 || grades.gold !== 2 || grades.silver !== 6 || grades.bronze !== 46) {
-    throw new Error(`grade split is ${JSON.stringify(grades)}, expected 1P 2G 6S 46B`);
-  }
-  const steps = trophies.flatMap((t) => t.steps || []);
-  const backed = steps.filter((s) => (s.c || []).length >= 2).length;
-  const disputes = trophies.filter((t) => t.dispute).length;
-  const claims = steps.length + trophies.length + disputes * 2;
-  return { steps: steps.length, backed, disputes, claims };
+  if (t.dispute) disputes++;
+}
+if (steps !== 360) fail(`expected 360 cited steps, got ${steps}`);
+if (disputes !== 30) fail(`expected 30 SOURCES DIFFER panels, got ${disputes}`);
+// Every source must be cited by at least one step: an unread source in the
+// list would be a headline number the guide does not actually use.
+const citedSources = new Set<number>();
+for (const t of trophies) for (const s of t.steps) for (const i of s.s) citedSources.add(i);
+for (let i = 1; i <= sources.length; i++) {
+  if (!citedSources.has(i)) fail(`source #${i} (${sources[i - 1].site}) is never cited by any step`);
+}
+const claims = steps + trophies.length + disputes * 2;
+if (claims !== 475) fail(`expected 475 claims, got ${claims}`);
+
+// --- Validate the screenshots (gate: 3-4 images, each at most 256 KiB). ---
+const shotDir = join(here, 'screenshots');
+if (!existsSync(shotDir)) fail('screenshots/ is missing');
+const shots = readdirSync(shotDir).filter((f) => !f.startsWith('.')).sort();
+if (shots.length < 3 || shots.length > 4) fail(`expected 3-4 screenshots, got ${shots.length}`);
+for (const f of shots) {
+  const size = statSync(join(shotDir, f)).size;
+  if (size > 262144) fail(`screenshot ${f} is ${size} bytes, over the 256 KiB cap`);
 }
 
-function imageDimensions(buf, name) {
-  // PNG: width/height are the first 8 bytes of the IHDR chunk.
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
-    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
-  }
-  // JPEG: walk the markers to the first Start-Of-Frame segment.
-  if (buf[0] === 0xff && buf[1] === 0xd8) {
-    let i = 2;
-    while (i + 9 < buf.length) {
-      if (buf[i] !== 0xff) break;
-      const marker = buf[i + 1];
-      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-        return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
-      }
-      const len = buf.readUInt16BE(i + 2);
-      i += 2 + len;
-    }
-  }
-  throw new Error(`screenshot ${name}: cannot read dimensions`);
-}
-
-function validateScreenshots() {
-  const dir = join(here, 'screenshots');
-  const files = readdirSync(dir).filter((f) => !f.startsWith('.')).sort();
-  if (files.length < 3 || files.length > 4) {
-    throw new Error(`screenshots/ must hold 3 or 4 images, found ${files.length}`);
-  }
-  for (const f of files) {
-    const buf = readFileSync(join(dir, f));
-    if (buf.length > 262144) throw new Error(`screenshot ${f} is over 256 KiB`);
-    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8;
-    const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
-    if (!isJpeg && !isPng) throw new Error(`screenshot ${f} is not a whole JPEG or PNG`);
-    const { width, height } = imageDimensions(buf, f);
-    const longSide = Math.max(width, height);
-    const shortSide = Math.min(width, height);
-    if (longSide > 1280 || shortSide < 480) {
-      throw new Error(`screenshot ${f} is ${width}x${height}: long side over 1280 or short side under 480`);
-    }
-  }
-  return files.length;
-}
-
-const counts = validateTrophies();
-const shots = validateScreenshots();
-
-emptyContents(out);
+// --- Hand in: clear the output dir's contents (never the dir itself: the
+// grader mounts it, and rmSync on a mount point throws EBUSY), then copy. ---
+mkdirSync(out, { recursive: true });
+for (const f of readdirSync(out)) rmSync(join(out, f), { recursive: true, force: true });
 cpSync(join(here, 'app'), join(out, 'app'), { recursive: true });
 mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) {
-  cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
-}
+cpSync(shotDir, join(out, 'screenshots'), { recursive: true });
 
-const dossierOpts = {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  app_max_files: 993,
-  app_max_bytes: 50331648,
-};
-const dossier = buildDossier(out, dossierOpts);
+const opts = { text_max_bytes: 163840, screenshots: { max: 4, max_bytes: 262144 }, app_max_files: 993, app_max_bytes: 50331648 };
+const dossier = buildDossier(out, opts);
 writeFileSync(join(out, 'dossier.json'), dossier);
 
-// The dossier must be byte for byte what a fresh buildDossier writes.
-const fresh = buildDossier(out, dossierOpts);
-if (!Buffer.from(dossier).equals(Buffer.from(fresh))) {
-  throw new Error('dossier.json is not byte-identical to a fresh buildDossier run');
-}
-const dossierBytes = statSync(join(out, 'dossier.json')).size;
-console.log(
-  `Leonida Platinum Codex: 55 trophies, ${counts.steps} cited steps (${counts.backed} backed by 2+ sources), ${counts.disputes} SOURCES DIFFER panels, ${counts.claims} claims cited; ${shots} screenshots; dossier ${dossierBytes} bytes, byte-identical to a fresh build.`,
-);
+// --- Byte-compare against a fresh build of the same dossier. ---
+const fresh = buildDossier(out, opts);
+const a = Buffer.from(dossier as unknown as Uint8Array);
+const b = Buffer.from(fresh as unknown as Uint8Array);
+if (!a.equals(b)) fail('dossier.json is not byte-identical to a fresh buildDossier run');
+
+console.log(`Leonida Platinum Codex: 55 trophies, ${steps} cited steps (${steps} backed by 2+ sources), ${disputes} SOURCES DIFFER panels, ${claims} claims cited; ${shots.length} screenshots; dossier ${a.length} bytes, byte-identical to a fresh build.`);
