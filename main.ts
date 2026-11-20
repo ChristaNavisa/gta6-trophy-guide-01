@@ -1,26 +1,14 @@
-// Leonida Platinum Codex — gta6-trophy-guide-01 entry (Node 22, standard library only).
-// Developed from the kit starter: the guide is this directory's app/ folder, plain static
-// files a browser opens at app/index.html, offline — it loads nothing over the network, and
-// its trophy list and guides are app/data/trophies.json. The program hands it in: it copies
-// app/ and screenshots/ from beside this file to /output and writes /output/dossier.json,
-// the summary the judge reads (your screenshots, the first load's files and bytes, and your
-// source), with the vendored make.fun library. Leave vendor/makefun-frontend.ts as it is:
-// the scorer requires dossier.json to be byte for byte what its own copy writes.
+// Leonida Platinum Codex v3 — hands the guide in.
 //
-// Differences from the starter, all deliberate:
-//  - The output dir is never removed: its CONTENTS are emptied instead, so main.ts works
-//    when /output is a mount point (rmSync(outputDir) throws EBUSY there).
-//  - trophies.json is validated before anything is copied: 55 trophies, unique names,
-//    every guide a non-empty string, every step cited, grades 1P/2G/6S/46B.
-//  - Screenshots are validated: 3-4 files, each <= 256 KiB, JPEG or PNG by magic bytes.
-//  - The dossier is built twice and byte-compared: the written dossier.json must equal a
-//    fresh buildDossier run, or the program fails instead of handing in a stale file.
-//  - A one-line audit summary is printed (claims, steps backed by 2+ sources, disputes).
-//
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-
+// The program copies app/ and screenshots/ from beside this file to
+// /output (MAKEFUN_OUTPUT_DIR outside the grader) and writes
+// /output/dossier.json with buildDossier from vendor/makefun-frontend.ts,
+// exactly as the kit's starter does. Two robustness details:
+//   - The output dir is emptied by removing its children, never by rmSync
+//     on the dir itself: the grader hands /output over as a mount point
+//     and rmSync on it throws EBUSY.
+//   - After writing the dossier, the program rebuilds it fresh and compares
+//     the bytes: a mismatch fails the run, so a bad dossier never ships.
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,97 +17,114 @@ import { buildDossier } from './vendor/makefun-frontend.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-const SHOT_MAX = 4;
-const SHOT_MAX_BYTES = 262144;
-const APP_MAX_FILES = 993;
-const APP_MAX_BYTES = 50331648;
-const DOSSIER_TEXT_MAX = 163840;
-
-function fail(message: string): never {
-  throw new Error('main.ts: ' + message);
-}
-
-// Empty a directory's contents without removing the directory itself: safe when the
-// output directory is a mount point, where rmSync(dir, { recursive: true }) throws EBUSY.
-function emptyContents(dir: string): void {
+function emptyContents(dir) {
+  // Clear a directory's children without removing the directory itself.
   mkdirSync(dir, { recursive: true });
   for (const name of readdirSync(dir)) {
     rmSync(join(dir, name), { recursive: true, force: true });
   }
 }
 
-function validateTrophies(): { trophies: number; steps: number; claims: number; backed2: number; disputes: number } {
-  const dataPath = join(here, 'app', 'data', 'trophies.json');
-  if (!existsSync(dataPath)) fail('app/data/trophies.json is missing');
-  const data = JSON.parse(readFileSync(dataPath, 'utf8')) as any;
-  const trophies = data.trophies as any[];
-  if (!Array.isArray(trophies) || trophies.length !== 55) fail('trophies.json must hold exactly 55 trophies, found ' + (trophies?.length ?? 0));
-  const names = new Set<string>();
-  const grades: Record<string, number> = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
-  let steps = 0, backed2 = 0, disputes = 0;
+function validateTrophies() {
+  const raw = readFileSync(join(here, 'app', 'data', 'trophies.json'), 'utf8');
+  const data = JSON.parse(raw);
+  const trophies = data.trophies;
+  if (!Array.isArray(trophies) || trophies.length !== 55) {
+    throw new Error(`trophies.json must hold 55 trophies, found ${Array.isArray(trophies) ? trophies.length : 'none'}`);
+  }
+  const names = new Set();
   for (const t of trophies) {
-    if (typeof t.name !== 'string' || !t.name) fail('trophy ' + t.id + ' has no name');
-    if (names.has(t.name)) fail('duplicate trophy name: ' + t.name);
-    names.add(t.name);
-    if (typeof t.guide !== 'string' || !t.guide.trim()) fail('trophy ' + t.name + ' has an empty guide (guides must be full text, never stubs)');
-    if (!(t.grade in grades)) fail('trophy ' + t.name + ' has an unknown grade: ' + t.grade);
-    grades[t.grade]++;
-    if (!Array.isArray(t.steps) || t.steps.length === 0) fail('trophy ' + t.name + ' has no steps');
-    for (const s of t.steps) {
-      steps++;
-      if (!Array.isArray(s.s) || s.s.length === 0) fail('trophy ' + t.name + ' has an uncited step: ' + s.t);
-      if (s.s.length >= 2) backed2++;
+    if (typeof t.guide !== 'string' || t.guide.trim() === '') {
+      throw new Error(`trophy ${t.name || t.id} has no text guide`);
     }
-    if (t.dispute) disputes++;
+    if (names.has(t.name)) throw new Error(`duplicate trophy name: ${t.name}`);
+    names.add(t.name);
+    for (const s of t.steps || []) {
+      if (!Array.isArray(s.c) || s.c.length === 0) {
+        throw new Error(`trophy ${t.name}: a step cites no source`);
+      }
+    }
   }
+  const grades = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
+  for (const t of trophies) grades[t.grade] = (grades[t.grade] || 0) + 1;
   if (grades.platinum !== 1 || grades.gold !== 2 || grades.silver !== 6 || grades.bronze !== 46) {
-    fail('grade split must be 1P/2G/6S/46B, found ' + JSON.stringify(grades));
+    throw new Error(`grade split is ${JSON.stringify(grades)}, expected 1P 2G 6S 46B`);
   }
-  const claims = steps + trophies.length + disputes * 2;
-  return { trophies: trophies.length, steps, claims, backed2, disputes };
+  const steps = trophies.flatMap((t) => t.steps || []);
+  const backed = steps.filter((s) => (s.c || []).length >= 2).length;
+  const disputes = trophies.filter((t) => t.dispute).length;
+  const claims = steps.length + trophies.length + disputes * 2;
+  return { steps: steps.length, backed, disputes, claims };
 }
 
-function validateScreenshots(): string[] {
+function imageDimensions(buf, name) {
+  // PNG: width/height are the first 8 bytes of the IHDR chunk.
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  }
+  // JPEG: walk the markers to the first Start-Of-Frame segment.
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < buf.length) {
+      if (buf[i] !== 0xff) break;
+      const marker = buf[i + 1];
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
+      }
+      const len = buf.readUInt16BE(i + 2);
+      i += 2 + len;
+    }
+  }
+  throw new Error(`screenshot ${name}: cannot read dimensions`);
+}
+
+function validateScreenshots() {
   const dir = join(here, 'screenshots');
-  if (!existsSync(dir)) fail('screenshots/ is missing (need 3-4 screenshots, first by name is the cover)');
-  const files = readdirSync(dir).filter((f) => /\.(jpe?g|png)$/i.test(f)).sort();
-  if (files.length < 3 || files.length > SHOT_MAX) fail('need 3-4 screenshots, found ' + files.length);
-  for (const f of files) {
-    const p = join(dir, f);
-    const size = statSync(p).size;
-    if (size > SHOT_MAX_BYTES) fail('screenshot ' + f + ' is ' + size + ' bytes, over the 256 KiB cap');
-    const magic = readFileSync(p).subarray(0, 8);
-    const isJpeg = magic[0] === 0xff && magic[1] === 0xd8 && magic[2] === 0xff;
-    const isPng = magic[0] === 0x89 && magic[1] === 0x50 && magic[2] === 0x4e && magic[3] === 0x47;
-    if (!isJpeg && !isPng) fail('screenshot ' + f + ' is not a JPEG or PNG (bad magic bytes)');
+  const files = readdirSync(dir).filter((f) => !f.startsWith('.')).sort();
+  if (files.length < 3 || files.length > 4) {
+    throw new Error(`screenshots/ must hold 3 or 4 images, found ${files.length}`);
   }
-  return files;
+  for (const f of files) {
+    const buf = readFileSync(join(dir, f));
+    if (buf.length > 262144) throw new Error(`screenshot ${f} is over 256 KiB`);
+    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8;
+    const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    if (!isJpeg && !isPng) throw new Error(`screenshot ${f} is not a whole JPEG or PNG`);
+    const { width, height } = imageDimensions(buf, f);
+    const longSide = Math.max(width, height);
+    const shortSide = Math.min(width, height);
+    if (longSide > 1280 || shortSide < 480) {
+      throw new Error(`screenshot ${f} is ${width}x${height}: long side over 1280 or short side under 480`);
+    }
+  }
+  return files.length;
 }
 
-const audit = validateTrophies();
+const counts = validateTrophies();
 const shots = validateScreenshots();
 
 emptyContents(out);
 cpSync(join(here, 'app'), join(out, 'app'), { recursive: true });
 mkdirSync(join(out, 'screenshots'), { recursive: true });
-cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) {
+  cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+}
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
-// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files and directories in app/ or
-// 48 MiB of app files: app/ counts beside /output's own 1000-entry cap, its screenshots/ and dossier.json).
-const caps = { text_max_bytes: DOSSIER_TEXT_MAX, screenshots: { max: SHOT_MAX, max_bytes: SHOT_MAX_BYTES }, app_max_files: APP_MAX_FILES, app_max_bytes: APP_MAX_BYTES };
-const dossier = buildDossier(out, caps);
+const dossierOpts = {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  app_max_files: 993,
+  app_max_bytes: 50331648,
+};
+const dossier = buildDossier(out, dossierOpts);
 writeFileSync(join(out, 'dossier.json'), dossier);
 
-// Byte-compare: the written dossier must equal a fresh buildDossier run, or fail loudly.
-// (Compare BYTES, not object identity: two Uint8Arrays with identical bytes are still
-// !== as objects — the first version of this check failed every run for exactly that reason.)
-const fresh = buildDossier(out, caps);
-const sameBytes = fresh.length === dossier.length && fresh.every((b, i) => b === dossier[i]);
-if (!sameBytes) fail('dossier.json is not byte-equal to a fresh buildDossier run — refusing to hand in a stale dossier');
-
+// The dossier must be byte for byte what a fresh buildDossier writes.
+const fresh = buildDossier(out, dossierOpts);
+if (!Buffer.from(dossier).equals(Buffer.from(fresh))) {
+  throw new Error('dossier.json is not byte-identical to a fresh buildDossier run');
+}
+const dossierBytes = statSync(join(out, 'dossier.json')).size;
 console.log(
-  'Leonida Platinum Codex: ' + audit.trophies + ' trophies, ' + audit.steps + ' cited steps (' +
-  audit.backed2 + ' backed by 2+ sources), ' + audit.disputes + ' SOURCES DIFFER panels, ' +
-  audit.claims + ' claims cited; ' + shots.length + ' screenshots; dossier ' + dossier.length + ' bytes, byte-identical to a fresh build.',
+  `Leonida Platinum Codex: 55 trophies, ${counts.steps} cited steps (${counts.backed} backed by 2+ sources), ${counts.disputes} SOURCES DIFFER panels, ${counts.claims} claims cited; ${shots} screenshots; dossier ${dossierBytes} bytes, byte-identical to a fresh build.`,
 );

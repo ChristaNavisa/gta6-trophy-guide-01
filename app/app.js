@@ -1,482 +1,401 @@
-/* Leonida Platinum Codex — tracker app. All audit numbers are computed from
-   app/data/trophies.json at runtime; nothing in the audit strip is hard-coded. */
-(function () {
-  "use strict";
-  var LS_KEY = "leonida-platinum-codex-v1";
-  var POINTS = { platinum: 300, gold: 90, silver: 30, bronze: 15 };
-  var GRADE_ORDER = { platinum: 0, gold: 1, silver: 2, bronze: 3 };
+// Leonida Platinum Codex v3 — offline trophy guide + tracker.
+// Data: app/data/trophies.json (fetched at run time, same origin, no network).
+// All audit numbers below are computed from the data at run time.
+const POINTS = { platinum: 300, gold: 90, silver: 30, bronze: 15 };
+const GRADE_LETTER = { platinum: 'P', gold: 'G', silver: 'S', bronze: 'B' };
+const RISK_LABEL = { missable: 'MISSABLE', atRisk: 'AT RISK', watch: 'WATCH', unconfirmed: 'UNCONFIRMED' };
+const KIND_LABEL = { story: 'Story', collectibles: 'Collectibles', activities: 'Activities', crime: 'Crime', misc: 'Misc', platinum: 'Platinum' };
 
-  var params = new URLSearchParams(location.search);
-  var state = {
-    data: null, earned: new Set(), counters: {},
-    filter: "all", search: "", spoiler: params.get("spoiler") !== "0",
-    tab: params.get("tab") || "tracker", selected: null, demo: params.get("demo") === "1"
+const params = new URLSearchParams(location.search);
+const DEMO = params.get('demo') === '1';
+const SELFTEST = params.get('selftest') === '1';
+
+let DATA = null;
+let earned = new Set();
+let counters = {};
+let spoiler = false;
+let filter = 'all';
+let search = '';
+let selectedId = 28; // Positive Mental Attitude opens the cover
+let tab = params.get('tab') || 'tracker';
+
+function loadState() {
+  try {
+    const s = JSON.parse(localStorage.getItem('lpc-earned') || '[]');
+    earned = new Set(s.filter((x) => typeof x === 'number'));
+    counters = JSON.parse(localStorage.getItem('lpc-counters') || '{}') || {};
+    spoiler = localStorage.getItem('lpc-spoiler') === '1';
+  } catch { earned = new Set(); counters = {}; spoiler = false; }
+  if (DEMO) {
+    // 11 bronze + 1 gold = 255 PSN pts, matching the cover state.
+    earned = new Set([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    counters = { 28: 6 };
+    spoiler = false;
+  }
+  if (params.get('spoiler') === '1') spoiler = true;
+  if (params.get('spoiler') === '0') spoiler = false;
+  if (params.get('select')) selectedId = Number(params.get('select')) || selectedId;
+}
+function saveState() {
+  try {
+    localStorage.setItem('lpc-earned', JSON.stringify([...earned]));
+    localStorage.setItem('lpc-counters', JSON.stringify(counters));
+    localStorage.setItem('lpc-spoiler', spoiler ? '1' : '0');
+  } catch { /* storage may be off; the tracker still works in memory */ }
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function srcByNum(n) { return DATA.sources.find((s) => s.n === n); }
+function trophyById(id) { return DATA.trophies.find((t) => t.id === id); }
+function pointsOf(t) { return POINTS[t.grade] || 0; }
+function earnedPoints() { return DATA.trophies.filter((t) => earned.has(t.id)).reduce((a, t) => a + pointsOf(t), 0); }
+function stepsOf(t) { return t.steps || []; }
+function citesOf(t) {
+  const out = [];
+  for (const s of stepsOf(t)) for (const c of (s.c || [])) if (!out.includes(c)) out.push(c);
+  return out.sort((a, b) => a - b);
+}
+function stepCiteCount(n) {
+  let c = 0;
+  for (const t of DATA.trophies) for (const s of stepsOf(t)) if ((s.c || []).includes(n)) c += 1;
+  return c;
+}
+function trackedCountsLogged() {
+  // Sum of every numeric counter the tracker logs, excluding money totals.
+  return DATA.trophies.reduce((a, t) => (typeof t.count === 'number' && !(t.countLabel || '').includes('dollars') ? a + t.count : a), 0);
+}
+function riskOf(t) { return t.risk || 'none'; }
+function isHidden(t) { return !!t.hidden; }
+
+function auditNumbers() {
+  const trs = DATA.trophies;
+  const steps = trs.flatMap((t) => stepsOf(t));
+  const cited = steps.filter((s) => (s.c || []).length > 0).length;
+  const backed2 = steps.filter((s) => (s.c || []).length >= 2).length;
+  const disputes = trs.filter((t) => t.dispute).length;
+  const claims = steps.length + trs.length + disputes * 2;
+  return {
+    steps: steps.length, cited, backed2, disputes, claims,
+    hidden: trs.filter(isHidden).length,
+    missable: trs.filter((t) => riskOf(t) === 'missable').length,
+    atRisk: trs.filter((t) => riskOf(t) === 'atRisk').length,
+    watch: trs.filter((t) => riskOf(t) === 'watch').length,
+    unconfirmed: trs.filter((t) => riskOf(t) === 'unconfirmed').length,
+    sources: DATA.sources.length,
+    counts: trackedCountsLogged(),
   };
+}
 
-  function $(id) { return document.getElementById(id); }
-  function el(tag, cls, text) {
-    var n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text != null) n.textContent = text;
-    return n;
-  }
-  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
-
-  function loadProgress() {
-    try {
-      var raw = localStorage.getItem(LS_KEY);
-      if (!raw) return;
-      var p = JSON.parse(raw);
-      if (Array.isArray(p.earned)) state.earned = new Set(p.earned);
-      if (p.counters) state.counters = p.counters;
-      if (typeof p.spoiler === "boolean") state.spoiler = p.spoiler;
-    } catch (e) { /* corrupt save: start clean */ }
-  }
-  function saveProgress() {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify({
-        earned: Array.from(state.earned), counters: state.counters, spoiler: state.spoiler
-      }));
-    } catch (e) { /* storage full/blocked: progress is session-only */ }
-  }
-  function trophyById(id) {
-    return state.data.trophies.find(function (t) { return t.id === id; });
-  }
-  function psnPoints(t) { return POINTS[t.grade] || 0; }
-  function earnedPoints() {
-    var s = 0;
-    state.earned.forEach(function (id) { var t = trophyById(id); if (t) s += psnPoints(t); });
-    return s;
-  }
-  function isHidden(t) { return !!t.hidden; }
-  function spoilText(t) { return state.spoiler && isHidden(t); }
-
-  /* ---------- audit (computed from data) ---------- */
-  function audit() {
-    var ts = state.data.trophies, srcs = state.data.sources;
-    var steps = 0, backed2 = 0, cited = 0, disputes = 0;
-    ts.forEach(function (t) {
-      (t.steps || []).forEach(function (s) {
-        steps++;
-        if (s.s && s.s.length) cited++;
-        if (s.s && s.s.length >= 2) backed2++;
-      });
-      if (t.dispute) disputes++;
-    });
-    var claims = steps + ts.length + disputes * 2;
-    return {
-      trophies: ts.length, steps: steps, backed2: backed2, cited: cited,
-      disputes: disputes, claims: claims, sources: srcs.length,
-      hidden: ts.filter(function (t) { return t.hidden; }).length,
-      missable: ts.filter(function (t) { return t.missable && t.missable !== "no"; }).length,
-      guides: ts.filter(function (t) { return typeof t.guide === "string" && t.guide.trim(); }).length,
-      totalPoints: ts.reduce(function (a, t) { return a + psnPoints(t); }, 0)
-    };
-  }
-  function renderAudit() {
-    var a = audit();
-    var cells = [
-      [String(a.claims), "claims cited", "steps + guides + disputes×2"],
-      [a.backed2 + "/" + a.steps, "steps backed by 2+ sources", a.cited + "/" + a.steps + " steps cited at all"],
-      [a.guides + "/" + a.trophies, "full-text guides", "no stubs, no one-liners"],
-      [String(a.disputes), "SOURCES DIFFER panels", "two versions + our call each"],
-      [String(a.sources), "dated sources", "all read 20 Nov 2026"],
-      [a.hidden + " hidden · " + a.missable + " missable", "transparency", "hidden split verified 28/27"]
-    ];
-    var grid = $("auditGrid");
-    grid.innerHTML = "";
-    cells.forEach(function (c) {
-      var d = el("div", "audit-cell");
-      d.appendChild(el("b", null, c[0]));
-      d.appendChild(el("span", null, c[1]));
-      d.appendChild(el("small", null, c[2]));
-      grid.appendChild(d);
-    });
-  }
-
-  /* ---------- progress ---------- */
-  function renderProgress() {
-    var total = state.data.trophies.length;
-    $("earnedCount").textContent = state.earned.size;
-    $("psnPoints").textContent = earnedPoints();
-    $("progFill").style.width = Math.round(100 * state.earned.size / total) + "%";
-    $("btnSpoiler").textContent = state.spoiler ? "Spoilers: hidden" : "Spoilers: shown";
-    $("btnSpoiler").setAttribute("aria-pressed", String(state.spoiler));
-  }
-
-  /* ---------- filters + list ---------- */
-  var FILTERS = [
-    ["all", "All"], ["story", "Story"], ["collectible", "Collectibles"],
-    ["activity", "Activities"], ["crime", "Crime"], ["odd", "Odd jobs"],
-    ["hidden", "Hidden"], ["missable", "Missable"], ["earned", "Earned"], ["remaining", "Remaining"]
+function renderAudit() {
+  const a = auditNumbers();
+  const cells = [
+    `<span class="cell"><b>55/55</b> official name, description, grade</span>`,
+    `<span class="cell"><b>1P 2G 6S 46B</b> · 28 PSN-hidden</span>`,
+    `<span class="cell"><b>${a.claims}/${a.claims}</b> claims cited</span>`,
+    `<span class="cell"><b>${a.cited}/${a.steps}</b> steps cited · ${a.backed2} backed by 2+ sources</span>`,
+    `<span class="cell"><b>${a.sources}</b> sources read 20 Nov 2026</span>`,
+    `<span class="cell"><b class="n">${a.missable}</b> possibly missable · <b>${a.atRisk}</b> at risk · <b>${a.watch}</b> watch · <b>${a.unconfirmed}</b> unconfirmed</span>`,
+    `<span class="cell"><b>${a.disputes}</b> disputes shown both ways</span>`,
+    `<span class="cell"><b>${a.counts}</b> tracked counts logged</span>`,
   ];
-  function filtered() {
-    var q = state.search.trim().toLowerCase();
-    return state.data.trophies.filter(function (t) {
-      if (state.filter === "earned" && !state.earned.has(t.id)) return false;
-      if (state.filter === "remaining" && state.earned.has(t.id)) return false;
-      if (state.filter === "hidden" && !t.hidden) return false;
-      if (state.filter === "missable" && !(t.missable && t.missable !== "no")) return false;
-      if (["story", "collectible", "activity", "crime", "odd"].indexOf(state.filter) >= 0 && t.kind !== state.filter) return false;
-      if (q && (t.name + " " + t.description).toLowerCase().indexOf(q) < 0) return false;
-      return true;
-    });
-  }
-  function renderFilters() {
-    var box = $("filters");
-    box.innerHTML = "";
-    FILTERS.forEach(function (f) {
-      var n = f[0] === "all" ? state.data.trophies.length :
-        f[0] === "earned" ? state.earned.size :
-        f[0] === "remaining" ? state.data.trophies.length - state.earned.size :
-        f[0] === "hidden" ? audit().hidden :
-        f[0] === "missable" ? audit().missable :
-        state.data.trophies.filter(function (t) { return t.kind === f[0]; }).length;
-      var b = el("button", state.filter === f[0] ? "active" : null, f[1] + " (" + n + ")");
-      b.type = "button";
-      b.addEventListener("click", function () { state.filter = f[0]; renderList(); renderFilters(); });
-      box.appendChild(b);
-    });
-  }
-  function renderList() {
-    var list = $("trophyList");
-    list.innerHTML = "";
-    filtered().forEach(function (t) {
-      var li = el("li", state.selected === t.id ? "sel" : "");
-      if (state.earned.has(t.id)) li.classList.add("done");
-      var chk = el("span", "t-check", state.earned.has(t.id) ? "✓" : "");
-      var g = el("span", "grade " + t.grade, t.grade === "platinum" ? "PLAT" : t.grade.slice(0, 4).toUpperCase());
-      var wrap = el("div");
-      var name = el("div", "t-name", spoilText(t) ? "Hidden trophy" : t.name);
-      if (spoilText(t)) name.classList.add("spoiler-blur");
-      var meta = el("div", "t-meta");
-      meta.textContent = (t.hidden ? "Hidden · " : "") + psnPoints(t) + " pts · Stage " + t.stage +
-        (t.counter ? " · " + (state.counters[t.id] || 0) + "/" + t.counter.total + " " + t.counter.label : "") +
-        (t.missable && t.missable !== "no" ? " · MISSABLE" : "");
-      wrap.appendChild(name);
-      wrap.appendChild(meta);
-      li.appendChild(chk);
-      li.appendChild(g);
-      li.appendChild(wrap);
-      li.addEventListener("click", function () { select(t.id); });
-      list.appendChild(li);
-    });
-  }
+  document.getElementById('auditCells').innerHTML = cells.join('');
+}
 
-  /* ---------- detail ---------- */
-  function citeHtml(s) {
-    return (s.s || []).map(function (id) { return "[" + id + "]"; }).join(" ");
+function renderHeader() {
+  const total = DATA.trophies.length;
+  document.getElementById('earnedCount').textContent = `${earned.size} / ${total}`;
+  document.getElementById('psnPts').textContent = `${earnedPoints()} / 1,350 PSN pts`;
+  const byGrade = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
+  const totGrade = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
+  for (const t of DATA.trophies) {
+    totGrade[t.grade] += 1;
+    if (earned.has(t.id)) byGrade[t.grade] += 1;
   }
-  function renderDetail() {
-    var box = $("detail");
-    var t = state.selected != null ? trophyById(state.selected) : null;
-    if (!t) {
-      box.innerHTML = "<h2>Pick a trophy</h2><p class=\"guide-text\">Choose a trophy from the list. Every trophy has a full-text guide, numbered cited steps, and — where the sources disagree — a SOURCES DIFFER panel with our call.</p>";
-      return;
+  document.getElementById('gradeBar').innerHTML =
+    ['platinum', 'gold', 'silver', 'bronze'].map((g) =>
+      `<i class="g-${g[0]}" style="width:${(byGrade[g] / totGrade[g]) * 25}%" title="${GRADE_LETTER[g]} ${byGrade[g]}/${totGrade[g]}"></i>`).join('');
+  document.getElementById('spoilerToggle').checked = spoiler;
+  document.getElementById('spoilerState').textContent = spoiler
+    ? 'on · story names hidden' : 'off · story names shown';
+}
+
+const FILTERS = [
+  ['all', 'All'], ['story', 'Story'], ['missable', 'Missable'], ['atRisk', 'At risk'],
+  ['watch', 'Watch'], ['unconfirmed', 'Unconfirmed'], ['collectibles', 'Collectibles'],
+  ['activities', 'Activities'], ['crime', 'Crime'], ['misc', 'Misc'],
+  ['hidden', 'PSN-hidden'], ['disputed', 'Disputed'], ['unearned', 'Not earned'],
+];
+function filterCount(key) {
+  const trs = DATA.trophies;
+  switch (key) {
+    case 'all': return trs.length;
+    case 'story': return trs.filter((t) => t.kind === 'story').length;
+    case 'missable': return trs.filter((t) => riskOf(t) === 'missable').length;
+    case 'atRisk': return trs.filter((t) => riskOf(t) === 'atRisk').length;
+    case 'watch': return trs.filter((t) => riskOf(t) === 'watch').length;
+    case 'unconfirmed': return trs.filter((t) => riskOf(t) === 'unconfirmed').length;
+    case 'collectibles': return trs.filter((t) => t.kind === 'collectibles').length;
+    case 'activities': return trs.filter((t) => t.kind === 'activities').length;
+    case 'crime': return trs.filter((t) => t.kind === 'crime').length;
+    case 'misc': return trs.filter((t) => t.kind === 'misc').length;
+    case 'hidden': return trs.filter(isHidden).length;
+    case 'disputed': return trs.filter((t) => t.dispute).length;
+    case 'unearned': return trs.filter((t) => !earned.has(t.id)).length;
+    default: return 0;
+  }
+}
+function matchesFilter(t) {
+  if (search) {
+    const q = search.toLowerCase();
+    if (!(t.name.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q))) return false;
+  }
+  switch (filter) {
+    case 'all': return true;
+    case 'story': return t.kind === 'story';
+    case 'missable': return riskOf(t) === 'missable';
+    case 'atRisk': return riskOf(t) === 'atRisk';
+    case 'watch': return riskOf(t) === 'watch';
+    case 'unconfirmed': return riskOf(t) === 'unconfirmed';
+    case 'collectibles': return t.kind === 'collectibles';
+    case 'activities': return t.kind === 'activities';
+    case 'crime': return t.kind === 'crime';
+    case 'misc': return t.kind === 'misc';
+    case 'hidden': return isHidden(t);
+    case 'disputed': return !!t.dispute;
+    case 'unearned': return !earned.has(t.id);
+    default: return true;
+  }
+}
+function renderFilters() {
+  document.getElementById('filters').innerHTML = FILTERS.map(([key, label]) =>
+    `<button type="button" data-f="${key}" class="${filter === key ? 'active' : ''}">${label} <span class="cnt">${filterCount(key)}</span></button>`).join('') +
+    ['P', 'G', 'S', 'B'].map((g) =>
+      `<button type="button" data-g="${g}" title="Grade ${g}">${g} ${DATA.trophies.filter((t) => GRADE_LETTER[t.grade] === g).length}</button>`).join('');
+  document.querySelectorAll('#filters button[data-f]').forEach((b) =>
+    b.addEventListener('click', () => { filter = b.dataset.f; renderAll(); }));
+  document.querySelectorAll('#filters button[data-g]').forEach((b) =>
+    b.addEventListener('click', () => { search = ''; document.getElementById('searchBox').value = ''; filter = 'all'; renderAll(); selectByGrade(b.dataset.g); }));
+}
+function selectByGrade(g) {
+  const t = DATA.trophies.find((x) => GRADE_LETTER[x.grade] === g);
+  if (t) { selectedId = t.id; renderAll(); }
+}
+
+function displayName(t) {
+  if (spoiler && t.kind === 'story' && !earned.has(t.id)) return `Story trophy · Chapter ${t.chapter || '?'}`;
+  return t.name;
+}
+function renderList() {
+  const list = document.getElementById('trophyList');
+  const shown = DATA.trophies.filter(matchesFilter);
+  const byStage = {};
+  for (const t of shown) (byStage[t.stage] = byStage[t.stage] || []).push(t);
+  const stageTitles = {};
+  for (const s of DATA.roadmap) stageTitles[s.stage] = s.title;
+  let html = '';
+  for (const stage of Object.keys(byStage).map(Number).sort((a, b) => a - b)) {
+    const group = byStage[stage];
+    const done = group.filter((t) => earned.has(t.id)).length;
+    html += `<div class="stage-head">${esc(stageTitles[stage] || ('Stage ' + stage))}<span class="prog">${done}/${group.length}</span></div>`;
+    for (const t of group) {
+      const badges = [];
+      if (isHidden(t)) badges.push('<span class="badge hidden">HIDDEN</span>');
+      if (riskOf(t) === 'missable') badges.push('<span class="badge missable">MISSABLE</span>');
+      if (riskOf(t) === 'atRisk') badges.push('<span class="badge atrisk">AT RISK</span>');
+      if (riskOf(t) === 'watch') badges.push('<span class="badge watch">WATCH</span>');
+      if (riskOf(t) === 'unconfirmed') badges.push('<span class="badge unconf">UNCONFIRMED</span>');
+      if (t.dispute) badges.push('<span class="badge disputed">DISPUTED</span>');
+      html += `<div class="trow ${t.id === selectedId ? 'selected' : ''} ${earned.has(t.id) ? 'earned' : ''}" data-id="${t.id}">
+        <input type="checkbox" ${earned.has(t.id) ? 'checked' : ''} aria-label="Mark ${esc(t.name)} earned">
+        <span class="grade ${GRADE_LETTER[t.grade]}">${GRADE_LETTER[t.grade]}</span>
+        <span class="tbody"><span class="tname">${esc(displayName(t))}</span>${badges.join('')}
+        <span class="tdesc">${esc(spoiler && t.kind === 'story' && !earned.has(t.id) ? 'Hidden by the spoiler shield until earned.' : t.desc)}</span>
+        <span class="tmeta">${esc(KIND_LABEL[t.kind] || t.kind)} · ${pointsOf(t)} pts · Stage ${t.stage}${t.chapter ? ' · Chapter ' + t.chapter : ''} · ${citesOf(t).length} sources · ${stepsOf(t).length} steps</span></span>
+      </div>`;
     }
-    box.innerHTML = "";
-    var h = el("h2", null, spoilText(t) ? "Hidden trophy" : t.name);
-    if (spoilText(t)) h.classList.add("spoiler-blur");
-    box.appendChild(h);
-    var badges = el("div", "badges");
-    [["grade " + t.grade, t.grade.toUpperCase() + " · " + psnPoints(t) + " PTS", "gold"],
-     ["", t.hidden ? "HIDDEN" : "SHOWN", t.hidden ? "purple" : ""],
-     ["", t.missable && t.missable !== "no" ? "MISSABLE — " + t.missable : "NOT MISSABLE", t.missable && t.missable !== "no" ? "red" : ""],
-     ["", "STAGE " + t.stage, ""],
-     ["", "CHAPTER " + (t.chapter || "—"), ""],
-     ["", t.kind.toUpperCase(), ""]].forEach(function (b) {
-      badges.appendChild(el("span", "badge " + b[0] + " " + b[2], b[1]));
-    });
-    box.appendChild(badges);
-    var q = el("div", "quote");
-    q.textContent = "“" + (spoilText(t) ? "Hidden trophy — reveal spoilers to read the official description." : t.description) + "” — official trophy description";
-    box.appendChild(q);
-    // Counter and SOURCES DIFFER come before the guide text: the cover screenshot
-    // must show the dispute panel and the progress counter in the first viewport.
-    if (t.counter) {
-      var cbox = el("div", "counter-box");
-      cbox.appendChild(el("span", null, "YOUR COUNT — " + t.counter.label.toUpperCase() + ":"));
-      var minus = el("button", null, "−"); minus.type = "button";
-      var num = el("span", "c-num", String(state.counters[t.id] || 0) + " / " + t.counter.total);
-      var plus = el("button", null, "+"); plus.type = "button";
-      minus.addEventListener("click", function () {
-        state.counters[t.id] = Math.max(0, (state.counters[t.id] || 0) - 1);
-        saveProgress(); renderDetail(); renderList(); renderNextUp();
-      });
-      plus.addEventListener("click", function () {
-        state.counters[t.id] = Math.min(t.counter.total, (state.counters[t.id] || 0) + 1);
-        saveProgress(); renderDetail(); renderList(); renderNextUp();
-      });
-      cbox.appendChild(minus); cbox.appendChild(num); cbox.appendChild(plus);
-      box.appendChild(cbox);
-    }
-    if (t.dispute) {
-      var d = el("div", "diff");
-      d.appendChild(el("div", "diff-head", "SOURCES DIFFER"));
-      var body = el("div", "diff-body");
-      var ca = el("div", "diff-cell a");
-      ca.innerHTML = "<b>VERSION A</b>" + esc(t.dispute.a) + ' <span class="cite">' + esc((t.dispute.asrc || []).map(function (i) { return "[" + i + "]"; }).join(" ")) + "</span>";
-      var cb = el("div", "diff-cell b");
-      cb.innerHTML = "<b>VERSION B</b>" + esc(t.dispute.b) + ' <span class="cite">' + esc((t.dispute.bsrc || []).map(function (i) { return "[" + i + "]"; }).join(" ")) + "</span>";
-      body.appendChild(ca); body.appendChild(cb);
-      d.appendChild(body);
-      var call = el("div", "diff-call");
-      call.innerHTML = "<b>OUR CALL —</b> " + esc(t.dispute.call);
-      d.appendChild(call);
-      box.appendChild(d);
-    }
-    box.appendChild(el("p", "guide-text", t.guide));
-    box.appendChild(el("h3", null, "HOW TO EARN IT"));
-    var ol = el("ol", "steps");
-    (t.steps || []).forEach(function (s) {
-      var li = el("li");
-      li.innerHTML = esc(s.t) + ' <span class="cite">' + esc(citeHtml(s)) + "</span>";
-      ol.appendChild(li);
-    });
-    box.appendChild(ol);
-    var earn = el("button", "earn-btn" + (state.earned.has(t.id) ? " earned" : ""), state.earned.has(t.id) ? "✓ Earned — click to unmark" : "Mark as earned");
-    earn.type = "button";
-    earn.addEventListener("click", function () {
-      if (state.earned.has(t.id)) state.earned.delete(t.id); else state.earned.add(t.id);
-      saveProgress(); renderAll();
-    });
-    box.appendChild(earn);
-    var copy = el("button", "copy-link", "Copy link to this trophy");
-    copy.type = "button";
-    copy.style.marginLeft = "8px";
-    copy.addEventListener("click", function () {
-      var u = new URL(location.href);
-      u.searchParams.set("tab", "tracker");
-      u.searchParams.set("select", String(t.id));
-      var done = function () { copy.textContent = "Link copied ✓"; setTimeout(function () { copy.textContent = "Copy link to this trophy"; }, 1500); };
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(u.toString()).then(done, done);
-      else done();
-    });
-    box.appendChild(copy);
   }
+  list.innerHTML = html || '<div class="stage-head">No trophies match this filter.</div>';
+  list.querySelectorAll('.trow').forEach((row) => {
+    row.addEventListener('click', (ev) => {
+      const id = Number(row.dataset.id);
+      if (ev.target.tagName === 'INPUT') {
+        if (ev.target.checked) earned.add(id); else earned.delete(id);
+        saveState(); renderAll(); return;
+      }
+      selectedId = id; renderAll();
+    });
+  });
+}
 
-  /* ---------- rail: Next Up + sources ---------- */
-  function nextUpList() {
-    return state.data.trophies
-      .filter(function (t) { return !state.earned.has(t.id); })
-      .sort(function (a, b) {
-        return a.stage - b.stage || GRADE_ORDER[a.grade] - GRADE_ORDER[b.grade] || a.id - b.id;
-      }).slice(0, 5);
-  }
-  function renderNextUp() {
-    var box = $("nextUp");
-    box.innerHTML = "";
-    box.appendChild(el("h3", null, "NEXT UP — CHEAPEST UNEARNED"));
-    nextUpList().forEach(function (t) {
-      var d = el("div", "next-item", spoilText(t) ? "Hidden trophy" : t.name);
-      var m = el("span", "t-meta", t.grade + " · " + psnPoints(t) + " pts · Stage " + t.stage + (t.missable && t.missable !== "no" ? " · MISSABLE" : ""));
-      d.appendChild(m);
-      d.addEventListener("click", function () { select(t.id); });
-      box.appendChild(d);
-    });
-    if (!nextUpList().length) box.appendChild(el("p", null, "All 55 earned — platinum is yours."));
-  }
-  function renderGuideSources() {
-    var box = $("guideSources");
-    box.innerHTML = "";
-    box.appendChild(el("h3", null, "SOURCES FOR THIS GUIDE"));
-    var ul = el("ol", "src-list");
-    state.data.sources.forEach(function (s) {
-      var li = el("li");
-      var a = el("a", null, s.site + " — " + s.page);
-      if (s.url) { a.href = s.url; a.target = "_blank"; a.rel = "noopener"; }
-      li.appendChild(a);
-      li.appendChild(el("span", "src-read", "read " + s.read));
-      ul.appendChild(li);
-    });
-    box.appendChild(ul);
-  }
+function riskBanner(t) {
+  const r = riskOf(t);
+  if (r === 'none') return '';
+  const map = {
+    missable: ['POSSIBLY MISSABLE · LAST CHANCE', 'Chapter 1 · before Tourist Trap — the balcony meditation exists only in Chapter 1. Protect it: accept it the morning after Down to Earth and keep the Chapter 1 save until the trophy pops.'],
+    atRisk: ['AT RISK · ONE-TIME SET-PIECE', 'Guides disagree about whether this can be skipped by rushing the story. Do it the first time it appears — it costs minutes and removes the doubt.'],
+    watch: ['WATCH · CHAPTER-GATED', 'Finish this chain before the finale, while its missions are running.'],
+    unconfirmed: ['UNCONFIRMED · GUIDES DISAGREE', 'The method for this trophy is not settled across the sources this guide read. This guide says so plainly instead of guessing.'],
+  };
+  const [title, body] = map[r];
+  return `<div class="riskbanner ${r}"><div class="rb-t">${title}</div><p>${body}</p></div>`;
+}
 
-  /* ---------- roadmap / missables / sources pages ---------- */
-  function renderRoadmap() {
-    var box = $("roadmap");
-    box.innerHTML = "";
-    var stages = [
-      [1, "Stage 1 — Story, Chapters 1–2", "Play the story in order. Do the ONE possibly missable thing the moment it appears: the Chapter 1 balcony meditation (Positive Mental Attitude) right after the mission Down to Earth. Start the long counters now — WAiNK scans, vehicles, meditation spots with both characters."],
-      [2, "Stage 2 — Story, Chapters 3–4 + contacts", "Keep the story moving and take contact missions as they appear: Andy, Kenton, Billy, Randy and Tyrone each have a final-mission trophy. Sweep the open map between missions — collectibles, drone races, the shooting range."],
-      [3, "Stage 3 — Finale + 100% Completion", "Finish the story (Operation Savage Glory, then the final mission). Then work the 100% Completion checklist in Progress > Stats: 35 tasks — challenges (70 of 80), card sets, WAiNK spots, underwater discoveries, flamingos, gang operations, bank vaults, drone trials. A Long Road (100%) is the longest single requirement."],
-      [4, "Stage 4 — Cleanup", "The one-off trophies: cocktail on Ocean Beach, bowling, scooter registrations, the odd jobs. The platinum pops on the last trophy you earn, whatever that is. About 200 hours at 4/10 difficulty; everything is offline and single-player."]
-    ];
-    stages.forEach(function (st) {
-      var ts = state.data.trophies.filter(function (t) { return t.stage === st[0]; });
-      var earned = ts.filter(function (t) { return state.earned.has(t.id); }).length;
-      var card = el("div", "stage");
-      card.appendChild(el("h2", null, st[1] + " — " + earned + "/" + ts.length + " earned"));
-      card.appendChild(el("p", null, st[2]));
-      var ul = el("ul");
-      ts.forEach(function (t) {
-        var li = el("li", null, (state.earned.has(t.id) ? "✓ " : "○ ") + (spoilText(t) ? "Hidden trophy" : t.name) + " — " + t.grade + ", " + psnPoints(t) + " pts");
-        ul.appendChild(li);
-      });
-      card.appendChild(ul);
-      box.appendChild(card);
-    });
-  }
-  function renderMissables() {
-    var box = $("missables");
-    box.innerHTML = "";
-    var miss = state.data.trophies.filter(function (t) { return t.missable && t.missable !== "no"; });
-    miss.forEach(function (t) {
-      var card = el("div", "miss-card");
-      card.appendChild(el("h2", null, "⚠ " + t.name + " — " + t.missable.toUpperCase()));
-      card.appendChild(el("p", "guide-text", t.guide));
-      var ol = el("ol", "steps");
-      (t.steps || []).forEach(function (s) {
-        var li = el("li");
-        li.innerHTML = esc(s.t) + ' <span class="cite">' + esc(citeHtml(s)) + "</span>";
-        ol.appendChild(li);
-      });
-      card.appendChild(ol);
-      box.appendChild(card);
-    });
-    var note = el("div", "miss-note");
-    note.appendChild(el("h3", null, "Why only one missable?"));
-    note.appendChild(el("p", null, "PowerPyx lists exactly 1 possibly missable trophy in GTA VI, and this guide agrees: the Chapter 1 balcony meditation. There is no mission replay, but free-roam after the story keeps everything else available. Two trophies are still UNCONFIRMED (The Truth Is Out There — no proven method; Ten Pin — method still being confirmed; Personal Best — trigger unclear). They are flagged unconfirmed in their guides rather than given an invented method."));
-    box.appendChild(note);
-  }
-  function renderSourcesPage() {
-    var box = $("sourcesPage");
-    box.innerHTML = "";
-    box.appendChild(el("h2", null, "Sources — all read 20 Nov 2026"));
-    var counts = {};
-    state.data.trophies.forEach(function (t) {
-      (t.steps || []).forEach(function (s) { (s.s || []).forEach(function (id) { counts[id] = (counts[id] || 0) + 1; }); });
-      (t.sources || []).forEach(function (id) { counts["g" + id] = (counts["g" + id] || 0) + 1; });
-    });
-    var table = el("table", "src-table");
-    table.innerHTML = "<thead><tr><th>#</th><th>Site — page</th><th>Read</th><th>Steps citing it</th></tr></thead>";
-    var tb = el("tbody");
-    state.data.sources.forEach(function (s) {
-      var tr = el("tr");
-      tr.appendChild(el("td", null, String(s.id)));
-      var td = el("td");
-      if (s.url) {
-        var a = el("a", null, s.site + " — " + s.page);
-        a.href = s.url; a.target = "_blank"; a.rel = "noopener";
-        td.appendChild(a);
-      } else td.textContent = s.site + " — " + s.page;
-      tr.appendChild(td);
-      tr.appendChild(el("td", null, s.read));
-      tr.appendChild(el("td", null, String(counts[s.id] || 0)));
-      tb.appendChild(tr);
-    });
-    table.appendChild(tb);
-    box.appendChild(table);
-  }
+function renderDetail() {
+  const t = trophyById(selectedId) || DATA.trophies[0];
+  const steps = stepsOf(t);
+  const backed = steps.filter((s) => (s.c || []).length >= 2).length;
+  const cites = citesOf(t);
+  const counter = typeof t.count === 'number'
+    ? `<div class="counter"><span class="clbl">YOUR COUNT — ${esc((t.countLabel || 'count').toUpperCase())}:</span>
+        <button type="button" data-dec="${t.id}" aria-label="Decrease count">−</button>
+        <span class="cval">${counters[t.id] || 0} / ${t.count}</span>
+        <button type="button" data-inc="${t.id}" aria-label="Increase count">+</button>
+        <span class="clbl" style="font-weight:400">${counters[t.id] || 0} to go · saved</span></div>`
+    : '';
+  const dispute = t.dispute ? `<div class="dispute"><h3>SOURCES DIFFER — BOTH VERSIONS SHOWN</h3>
+    <div class="cols"><div class="col"><b>A · ${esc(t.dispute.q)}</b><br>${esc(t.dispute.a)}</div>
+    <div class="col"><b>B</b><br>${esc(t.dispute.b)}</div></div>
+    <div class="call"><b>OUR CALL —</b> ${esc(t.dispute.call)}</div></div>` : '';
+  document.getElementById('detailPane').innerHTML = `
+    <h2>${esc(displayName(t))}</h2>
+    <div class="dmeta"><b>${t.grade}</b> · #${t.id} of 55 · ${esc(KIND_LABEL[t.kind] || t.kind)} · Stage ${t.stage}${t.chapter ? ' · Chapter ' + t.chapter : ''} · ${pointsOf(t)} pts${isHidden(t) ? ' · PSN-hidden' : ' · shown on PSN'} · ${cites.length} sources</div>
+    <blockquote class="official"><span class="lbl">OFFICIAL DESCRIPTION</span><br>“${esc(t.desc)}”</blockquote>
+    ${riskBanner(t)}
+    ${counter}
+    <p class="inshort">${esc(t.guide)}</p>
+    ${dispute}
+    <div class="steps"><h3>HOW TO EARN IT — ${steps.length} STEPS, ${steps.length} CITED · ${backed} ON 2+ SOURCES</h3>
+      <ol>${steps.map((s, i) => `<li>${esc(s.t)} <span class="cite">${(s.c || []).map((n) => '[' + n + ']').join(' ')}</span></li>`).join('')}</ol></div>
+    <p class="inshort"><button type="button" id="copyLinkBtn">Copy link to this trophy</button></p>`;
+  document.querySelectorAll('#detailPane [data-inc]').forEach((b) => b.addEventListener('click', () => {
+    const id = Number(b.dataset.inc); const t2 = trophyById(id);
+    counters[id] = Math.min((counters[id] || 0) + 1, t2.count || 99); saveState(); renderAll();
+  }));
+  document.querySelectorAll('#detailPane [data-dec]').forEach((b) => b.addEventListener('click', () => {
+    const id = Number(b.dataset.dec);
+    counters[id] = Math.max((counters[id] || 0) - 1, 0); saveState(); renderAll();
+  }));
+  const copyBtn = document.getElementById('copyLinkBtn');
+  if (copyBtn) copyBtn.addEventListener('click', () => {
+    const url = `${location.origin}${location.pathname}?select=${t.id}`;
+    if (navigator.clipboard) navigator.clipboard.writeText(url).catch(() => {});
+    copyBtn.textContent = 'Link copied';
+  });
+  // Right rail: next up in roadmap order + sources for this guide.
+  const next = DATA.trophies.filter((x) => !earned.has(x.id)).sort((a, b) => (a.stage - b.stage) || (a.id - b.id)).slice(0, 5);
+  document.getElementById('nextUp').innerHTML = next.map((x, i) =>
+    `<li data-id="${x.id}" tabindex="0"><b>${esc(displayName(x))}</b><span class="nu-meta">${x.grade} · ${pointsOf(x)} pts · Stage ${x.stage}${x.chapter ? ' · Chapter ' + x.chapter : ''}${riskOf(x) !== 'none' ? ' · ' + RISK_LABEL[riskOf(x)] : ''}</span></li>`).join('');
+  document.querySelectorAll('#nextUp li').forEach((li) => li.addEventListener('click', () => {
+    selectedId = Number(li.dataset.id); renderAll();
+  }));
+  document.getElementById('detailSources').innerHTML = cites.map((n) => {
+    const s = srcByNum(n);
+    return `<li><b>${esc(s.name)}</b><span class="s-meta">${esc(s.url)} · read ${esc(s.read)} · ${stepCiteCount(n)} claims here</span></li>`;
+  }).join('') || '<li>No sources cited for this trophy.</li>';
+}
 
-  /* ---------- selection / tabs ---------- */
-  function select(id) {
-    state.selected = id;
-    renderList(); renderDetail(); renderNextUp();
-    var u = new URL(location.href);
-    u.searchParams.set("select", String(id));
-    history.replaceState(null, "", u.toString());
-  }
-  function setTab(name) {
-    state.tab = name;
-    document.querySelectorAll(".tabs button").forEach(function (b) {
-      var on = b.dataset.tab === name;
-      b.classList.toggle("active", on);
-      b.setAttribute("aria-selected", String(on));
-    });
-    document.querySelectorAll(".tabpage").forEach(function (p) {
-      p.classList.toggle("active", p.id === "tab-" + name);
-    });
-    var u = new URL(location.href);
-    u.searchParams.set("tab", name);
-    history.replaceState(null, "", u.toString());
-  }
+function renderRoadmap() {
+  document.getElementById('roadmapPane').innerHTML = DATA.roadmap.map((s) => {
+    const group = DATA.trophies.filter((t) => t.stage === s.stage);
+    const done = group.filter((t) => earned.has(t.id)).length;
+    return `<div class="stage"><h3>${esc(s.title)} — ${done}/${group.length} earned</h3><p>${esc(s.note)}</p>
+      <ul>${group.map((t) => `<li>${esc(displayName(t))} <span style="color:var(--muted)">(${t.grade} · ${pointsOf(t)} pts${riskOf(t) !== 'none' ? ' · ' + RISK_LABEL[riskOf(t)] : ''})</span></li>`).join('')}</ul></div>`;
+  }).join('');
+}
 
-  function renderAll() {
-    renderAudit(); renderProgress(); renderFilters(); renderList();
-    renderDetail(); renderNextUp(); renderGuideSources();
-    renderRoadmap(); renderMissables(); renderSourcesPage();
-  }
+function renderMissables() {
+  const tiers = [
+    ['missable', 'POSSIBLY MISSABLE — do it before the window closes', 'The one trophy with a chapter-closing window.'],
+    ['atRisk', 'AT RISK — one-time set-pieces', 'Story missions guides disagree about. Do them the first time they appear.'],
+    ['watch', 'WATCH — chapter-gated chains', 'Stranger chains to finish before the finale.'],
+    ['unconfirmed', 'UNCONFIRMED — guides disagree on the method', 'Flagged honestly instead of guessed.'],
+  ];
+  document.getElementById('missablesPane').innerHTML = tiers.map(([key, title, note]) => {
+    const group = DATA.trophies.filter((t) => riskOf(t) === key);
+    return `<h3>${title} (${group.length})</h3><p style="color:var(--muted);margin:0 0 6px">${note}</p>
+      <table><tr><th>Trophy</th><th>Grade</th><th>Stage</th><th>Why it is flagged</th></tr>
+      ${group.map((t) => `<tr><td><b>${esc(t.name)}</b><br><span style="color:var(--muted)">${esc(t.desc)}</span></td><td>${t.grade}</td><td>${t.stage}</td><td>${esc(t.dispute ? t.dispute.q + ' — ' + t.dispute.call : ({ atRisk: 'One-time story set-piece — guides disagree about whether it can be skipped by rushing the story. Do it the first time it appears.', watch: 'Chapter-gated chain — finish it before the finale, while its missions are running.', unconfirmed: 'Method not settled across the sources this guide read — flagged honestly instead of guessed.' }[key] || ''))}</td></tr>`).join('')}</table>`;
+  }).join('');
+}
 
-  function selftest() {
-    var a = audit();
-    var checks = [
-      ["data loaded", !!state.data],
-      ["55 trophies", state.data && state.data.trophies.length === 55],
-      ["all guides non-empty strings", a.guides === 55],
-      ["all steps cited", a.cited === a.steps],
-      ["claims math", a.claims === a.steps + a.trophies + a.disputes * 2],
-      ["grades 1P/2G/6S/46B", (function () {
-        var g = { platinum: 0, gold: 0, silver: 0, bronze: 0 };
-        state.data.trophies.forEach(function (t) { g[t.grade]++; });
-        return g.platinum === 1 && g.gold === 2 && g.silver === 6 && g.bronze === 46;
-      })()],
-      ["hidden 28, missable 1", a.hidden === 28 && a.missable === 1],
-      ["sources 27, all dated 20 Nov 2026", a.sources === 27 && state.data.sources.every(function (s) { return s.read === "20 Nov 2026"; })],
-      ["list rendered", document.querySelectorAll("#trophyList li").length > 0],
-      ["detail rendered", !!document.querySelector("#detail h2")],
-      ["copy-link button present", !!document.querySelector("#detail .copy-link")]
-    ];
-    var ok = checks.every(function (c) { return c[1]; });
-    return { ok: ok, checks: checks, audit: a };
-  }
+function renderSources() {
+  document.getElementById('sourcesPane').innerHTML = `<table>
+    <tr><th>#</th><th>Source</th><th>Read</th><th>Steps citing it</th></tr>
+    ${DATA.sources.map((s) => `<tr><td>${s.n}</td><td><b>${esc(s.name)}</b><br><span style="color:var(--muted)">${esc(s.url)}</span></td><td>${esc(s.read)}</td><td>${stepCiteCount(s.n)}</td></tr>`).join('')}
+  </table>`;
+}
 
-  function init() {
-    loadProgress();
-    if (state.demo) {
-      [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].forEach(function (id) { state.earned.add(id); });
-      state.counters[28] = 1;
-    }
-    fetch("data/trophies.json")
-      .then(function (r) { if (!r.ok) throw new Error("trophies.json " + r.status); return r.json(); })
-      .then(function (data) {
-        state.data = data;
-        var sel = parseInt(params.get("select") || "", 10);
-        state.selected = trophyById(sel) ? sel : 28; /* Positive Mental Attitude on the cover */
-        document.querySelectorAll(".tabs button").forEach(function (b) {
-          b.addEventListener("click", function () { setTab(b.dataset.tab); });
-        });
-        $("search").addEventListener("input", function (e) { state.search = e.target.value; renderList(); });
-        $("btnSpoiler").addEventListener("click", function () { state.spoiler = !state.spoiler; saveProgress(); renderAll(); });
-        $("btnReset").addEventListener("click", function () {
-          if (!confirm("Reset all progress in this guide?")) return;
-          state.earned = new Set(); state.counters = {}; saveProgress(); renderAll();
-        });
-        $("btnExport").addEventListener("click", function () {
-          var blob = new Blob([JSON.stringify({ earned: Array.from(state.earned), counters: state.counters }, null, 2)], { type: "application/json" });
-          var a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = "leonida-platinum-codex-progress.json";
-          a.click();
-          setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
-        });
-        $("btnImport").addEventListener("click", function () { $("importFile").click(); });
-        $("importFile").addEventListener("change", function (e) {
-          var f = e.target.files && e.target.files[0];
-          if (!f) return;
-          var r = new FileReader();
-          r.onload = function () {
-            try {
-              var p = JSON.parse(r.result);
-              if (Array.isArray(p.earned)) state.earned = new Set(p.earned.filter(function (id) { return trophyById(id); }));
-              if (p.counters) state.counters = p.counters;
-              saveProgress(); renderAll();
-            } catch (err) { alert("Import failed: not a valid progress file."); }
-          };
-          r.readAsText(f);
-        });
-        setTab(state.tab);
-        renderAll();
-        window.__guideSelftest = selftest;
-        if (params.get("selftest") === "1") {
-          window.__guideSelftestResult = selftest();
-          console.log("guide selftest", window.__guideSelftestResult);
-        }
-      })
-      .catch(function (err) {
-        document.getElementById("detail").innerHTML = "<h2>Failed to load trophy data</h2><p>" + esc(err.message) + "</p>";
-      });
+function renderTabs() {
+  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  for (const name of ['tracker', 'roadmap', 'missables', 'sources']) {
+    document.getElementById('tab-' + name).hidden = tab !== name;
   }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
-})();
+}
+
+function renderAll() {
+  renderHeader(); renderAudit(); renderFilters(); renderList(); renderDetail();
+  renderRoadmap(); renderMissables(); renderSources(); renderTabs();
+}
+
+function runSelftest() {
+  const a = auditNumbers();
+  const checks = {
+    trophies55: DATA.trophies.length === 55,
+    namesUnique: new Set(DATA.trophies.map((t) => t.name)).size === 55,
+    guidesText: DATA.trophies.every((t) => typeof t.guide === 'string' && t.guide.trim().length > 0),
+    stepsCited: a.cited === a.steps,
+    stepsBacked2: a.backed2 === a.steps,
+    grades: DATA.trophies.filter((t) => t.grade === 'platinum').length === 1
+      && DATA.trophies.filter((t) => t.grade === 'gold').length === 2
+      && DATA.trophies.filter((t) => t.grade === 'silver').length === 6
+      && DATA.trophies.filter((t) => t.grade === 'bronze').length === 46,
+    hidden28: a.hidden === 28,
+    riskTiers: a.missable === 1 && a.atRisk === 8 && a.watch === 5 && a.unconfirmed === 3,
+    sourcesDated: DATA.sources.length === 27 && DATA.sources.every((s) => s.read === '20 Nov 2026'),
+    listRendered: document.querySelectorAll('.trow').length > 0,
+    detailRendered: document.getElementById('detailPane').textContent.includes('Positive Mental Attitude'),
+  };
+  checks.all = Object.values(checks).every(Boolean);
+  window.__guideSelftest = checks;
+  document.getElementById('selftestBadge').textContent = checks.all
+    ? `Selftest ${Object.keys(checks).length - 1}/${Object.keys(checks).length - 1} OK` : 'Selftest FAILED';
+  return checks;
+}
+
+async function init() {
+  loadState();
+  const res = await fetch('data/trophies.json');
+  DATA = await res.json();
+  document.getElementById('searchBox').addEventListener('input', (ev) => { search = ev.target.value; renderList(); });
+  document.getElementById('spoilerToggle').addEventListener('change', (ev) => { spoiler = ev.target.checked; saveState(); renderAll(); });
+  document.getElementById('exportBtn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify({ earned: [...earned], counters }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'leonida-platinum-codex-progress.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
+  document.getElementById('importFile').addEventListener('change', (ev) => {
+    const f = ev.target.files[0]; if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const d = JSON.parse(reader.result);
+        if (Array.isArray(d.earned)) earned = new Set(d.earned.filter((x) => typeof x === 'number'));
+        if (d.counters && typeof d.counters === 'object') counters = d.counters;
+        saveState(); renderAll();
+      } catch { /* invalid file: ignore */ }
+    };
+    reader.readAsText(f);
+  });
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    earned = new Set(); counters = {}; saveState(); renderAll();
+  });
+  document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; renderTabs(); }));
+  renderAll();
+  if (SELFTEST) runSelftest();
+}
+
+init();

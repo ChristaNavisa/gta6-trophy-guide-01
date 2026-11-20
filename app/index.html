@@ -7,68 +7,78 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="top">
+<header class="topbar">
   <div class="brand">
-    <div class="brand-kicker">GRAND THEFT AUTO VI &middot; PLAYSTATION 5 &middot; UNOFFICIAL FAN GUIDE</div>
-    <h1>LEONIDA PLATINUM CODEX</h1>
-    <div class="brand-sub">All 55 trophies. Every step cited. Every dispute shown. One roadmap to platinum.</div>
-  </div>
-  <div class="progress" id="progress">
-    <div class="prog-row"><span class="prog-label">EARNED</span><span class="prog-big"><b id="earnedCount">0</b> / 55</span><span class="prog-pts"><b id="psnPoints">0</b> / 1,350 PSN pts</span></div>
-    <div class="prog-bar"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
-    <div class="prog-row prog-actions">
-      <button id="btnSpoiler" type="button" aria-pressed="true">Spoilers: hidden</button>
-      <button id="btnExport" type="button">Export</button>
-      <button id="btnImport" type="button">Import</button>
-      <button id="btnReset" type="button">Reset</button>
-      <input type="file" id="importFile" accept="application/json" hidden>
+    <div class="mark">LP</div>
+    <div>
+      <h1>Leonida Platinum Codex</h1>
+      <p class="sub">GRAND THEFT AUTO VI · PLAYSTATION 5 · UNOFFICIAL FAN GUIDE</p>
+      <p class="tagline">All 55 trophies. Every step cited. Every dispute shown. One roadmap to platinum.</p>
     </div>
+  </div>
+  <div class="headstats">
+    <div class="earned"><span class="lbl">EARNED</span> <b id="earnedCount">0 / 55</b> <span id="psnPts">0 / 1,350 PSN pts</span></div>
+    <div class="gradebar" id="gradeBar" title="Platinum / Gold / Silver / Bronze progress"></div>
+    <div class="headbtns">
+      <label class="spoiler"><input type="checkbox" id="spoilerToggle"> Spoiler shield <span id="spoilerState">off · story names shown</span></label>
+      <button id="exportBtn" type="button">Export</button>
+      <button id="importBtn" type="button">Import</button>
+      <button id="resetBtn" type="button">Reset</button>
+      <span class="saved">Saved in this browser</span>
+    </div>
+    <input type="file" id="importFile" accept="application/json" hidden>
   </div>
 </header>
 
-<section class="audit" id="audit" aria-label="Audit — numbers computed from the guide data">
-  <div class="audit-title">AUDIT &middot; COMPUTED FROM THE DATA BELOW, NOT TYPED BY HAND</div>
-  <div class="audit-grid" id="auditGrid"></div>
+<section class="audit" id="auditStrip" aria-label="Audit — computed from the data below, not typed by hand">
+  <span class="audit-title">AUDIT · COMPUTED FROM THE DATA BELOW, NOT TYPED BY HAND</span>
+  <div class="audit-cells" id="auditCells"></div>
 </section>
 
-<nav class="tabs" role="tablist" aria-label="Guide sections">
-  <button role="tab" data-tab="tracker" class="active" aria-selected="true">Tracker</button>
-  <button role="tab" data-tab="roadmap" aria-selected="false">Roadmap</button>
-  <button role="tab" data-tab="missables" aria-selected="false">Missables</button>
-  <button role="tab" data-tab="sources" aria-selected="false">Sources</button>
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="tracker" role="tab">Tracker</button>
+  <button class="tab" data-tab="roadmap" role="tab">Roadmap</button>
+  <button class="tab" data-tab="missables" role="tab">Missables</button>
+  <button class="tab" data-tab="sources" role="tab">Sources</button>
 </nav>
 
-<main id="tab-tracker" class="tabpage active">
-  <div class="layout">
-    <aside class="list-col">
-      <div class="filters" id="filters"></div>
-      <input id="search" type="search" placeholder="Search trophies…" aria-label="Search trophies">
-      <ol class="trophy-list" id="trophyList"></ol>
-    </aside>
-    <section class="detail-col" id="detail" aria-live="polite"></section>
-    <aside class="rail-col">
-      <div class="rail-box" id="nextUp"></div>
-      <div class="rail-box" id="guideSources"></div>
-    </aside>
-  </div>
-</main>
-
-<main id="tab-roadmap" class="tabpage">
-  <div class="roadmap" id="roadmap"></div>
-</main>
-
-<main id="tab-missables" class="tabpage">
-  <div class="missables" id="missables"></div>
-</main>
-
-<main id="tab-sources" class="tabpage">
-  <div class="sources-page" id="sourcesPage"></div>
+<main>
+  <section id="tab-tracker" class="tabpanel">
+    <div class="filters" id="filters"></div>
+    <div class="tracker-grid">
+      <div class="listcol">
+        <input id="searchBox" type="search" placeholder="Search trophies…" aria-label="Search trophies">
+        <div id="trophyList" class="trophy-list"></div>
+      </div>
+      <div class="detailcol" id="detailPane"></div>
+      <aside class="rail">
+        <div class="rail-card">
+          <h2>NEXT UP IN ROADMAP ORDER</h2>
+          <ol id="nextUp" class="nextup"></ol>
+        </div>
+        <div class="rail-card">
+          <h2>SOURCES FOR THIS GUIDE</h2>
+          <ol id="detailSources" class="srcs"></ol>
+        </div>
+      </aside>
+    </div>
+  </section>
+  <section id="tab-roadmap" class="tabpanel" hidden>
+    <div id="roadmapPane" class="roadmap"></div>
+  </section>
+  <section id="tab-missables" class="tabpanel" hidden>
+    <div id="missablesPane" class="missables"></div>
+  </section>
+  <section id="tab-sources" class="tabpanel" hidden>
+    <div id="sourcesPane" class="sources"></div>
+  </section>
 </main>
 
 <footer class="foot">
-  <p>Unofficial fan guide. Not affiliated with Rockstar Games, Take-Two Interactive, Sony Interactive Entertainment or PlayStation. Trophy names and descriptions are the official list (55 trophies, PSN list read 20 Nov 2026). Methods marked <b>unconfirmed</b> are flagged as such — this guide will not invent a method. Progress is stored only in your browser (localStorage); Export/Import moves it as a JSON file.</p>
-  <p class="foot-small">Leonida Platinum Codex &middot; data: app/data/trophies.json &middot; 27 sources, all read 20 Nov 2026 &middot; 489 claims cited, 360/360 steps backed by 2+ sources.</p>
+  Unofficial fan guide. Every factual claim cites its source by number; where sources disagree, both versions are shown and a safe play is given.
+  <span id="selftestBadge"></span>
 </footer>
-<script src="app.js"></script>
+
+<script type="module" src="app.js"></script>
 </body>
 </html>
